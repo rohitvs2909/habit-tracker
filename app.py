@@ -33,8 +33,16 @@ APP_USER_1 = os.getenv("APP_USER_1", "rohit")
 APP_PASS_1 = os.getenv("APP_PASS_1", "@madhu2729")
 APP_USER_2 = os.getenv("APP_USER_2", "madhu")
 APP_PASS_2 = os.getenv("APP_PASS_2", "pass123")
+APP_USER_3 = os.getenv("APP_USER_3", "admin")
+APP_PASS_3 = os.getenv("APP_PASS_3", "admin@123")
 
-ALLOWED_USERS = {APP_USER_1.strip().lower(), APP_USER_2.strip().lower()}
+APP_CREDENTIALS = [
+    (APP_USER_1, APP_PASS_1),
+    (APP_USER_2, APP_PASS_2),
+    (APP_USER_3, APP_PASS_3),
+]
+
+ALLOWED_USERS = {username.strip().lower() for username, _ in APP_CREDENTIALS if username.strip()}
 
 class SQLiteCursor(sqlite3.Cursor):
     def execute(self, sql, parameters=()):
@@ -536,16 +544,10 @@ def init_db():
                 cur.execute(f"ALTER TABLE {table} ADD COLUMN owner_user_id INT NOT NULL DEFAULT 1")
     cur.close()
 
-    create_user_if_missing(conn, APP_USER_1, APP_PASS_1)
-    create_user_if_missing(conn, APP_USER_2, APP_PASS_2)
+    for username, password in APP_CREDENTIALS:
+        if username.strip():
+            create_user_if_missing(conn, username, password)
     conn.commit()
-
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM users WHERE username = %s", (APP_USER_1,))
-    user_1_id = cur.fetchone()[0]
-    cur.execute("SELECT id FROM users WHERE username = %s", (APP_USER_2,))
-    user_2_id = cur.fetchone()[0]
-    cur.close()
 
     conn.commit()
     conn.close()
