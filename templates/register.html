@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register | Habit Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&family=Manrope:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <main class="page-shell login-shell">
+        <section class="dashboard-card login-card">
+            <header class="hero">
+                <h1>CREATE ACCOUNT</h1>
+                <p>join the habit dashboard</p>
+            </header>
+
+            <form class="login-form" action="{{ url_for('register') }}" method="post">
+                {% if error %}
+                <p class="login-error">{{ error }}</p>
+                {% endif %}
+
+                <label for="username">Username</label>
+                <input id="username" name="username" type="text" minlength="3" required>
+
+                <label for="password">Password</label>
+                <input id="password" name="password" type="password" minlength="6" required>
+
+                <label for="confirm_password">Confirm Password</label>
+                <input id="confirm_password" name="confirm_password" type="password" minlength="6" required>
+
+                <button type="submit">Create Account</button>
+                <a class="button-link" href="{{ url_for('login') }}">Back to Login</a>
+            </form>
+        </section>
+    </main>
+</body>
+</html>

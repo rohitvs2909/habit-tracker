@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Habit Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&family=Manrope:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <main class="page-shell" data-year="{{ year }}" data-month="{{ month }}">
+        <section class="dashboard-card">
+            <header class="hero">
+                <h1>HABIT TRACKER</h1>
+                <p><span id="monthLabel">{{ month_name }} {{ year }}</span> digital habit dashboard</p>
+                <p id="liveNow" class="live-now"></p>
+            </header>
+
+            <section class="auth-bar">
+                <p>Signed in as <strong>{{ username }}</strong></p>
+                <div class="auth-actions">
+                    <a class="button-link" href="{{ url_for('change_password') }}">Change Password</a>
+                    <form action="{{ url_for('logout') }}" method="post">
+                        <button type="submit">Logout</button>
+                    </form>
+                </div>
+            </section>
+
+            <section class="add-habit-panel">
+                <h2>Add New Habit</h2>
+                <div class="add-habit-controls">
+                    <input id="newHabitInput" type="text" placeholder="Enter habit name">
+                    <select id="habitCategorySelect">
+                        <option value="daily">Daily Habit</option>
+                        <option value="weekly">Weekly Habit</option>
+                        <option value="monthly">Monthly Habit</option>
+                    </select>
+                    <button id="addHabitBtn" type="button">Add Habit</button>
+                </div>
+            </section>
+
+            <section class="week-legend">
+                <article class="legend-chip week-1">Week 1</article>
+                <article class="legend-chip week-2">Week 2</article>
+                <article class="legend-chip week-3">Week 3</article>
+                <article class="legend-chip week-4">Week 4</article>
+            </section>
+
+            <section class="table-block">
+                <h2>Monthly Habit Tracker Grid</h2>
+                <div class="table-scroll monthly-grid-scroll">
+                    <table class="habit-grid-table">
+                        <thead>
+                            <tr>
+                                <th class="habit-col">Habit</th>
+                                {% for day in range(1, days_in_month + 1) %}
+                                <th data-day="{{ day }}" class="day-col {% if day <= 7 %}day-week-1{% elif day <= 14 %}day-week-2{% elif day <= 21 %}day-week-3{% elif day <= 28 %}day-week-4{% else %}day-week-5{% endif %}">{{ day }}</th>
+                                {% endfor %}
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for habit in daily_habits %}
+                            <tr>
+                                <td
+                                    class="habit-name editable-habit-name"
+                                    contenteditable="true"
+                                    spellcheck="false"
+                                    data-group="daily"
+                                    data-habit-id="{{ habit['id'] }}"
+                                >{{ habit['name'] }}</td>
+                                {% for day in range(1, days_in_month + 1) %}
+                                {% set checked = daily_status.get((habit['id'], day), 0) %}
+                                <td>
+                                    <label class="box-wrap">
+                                        <input
+                                            class="habit-checkbox daily-checkbox"
+                                            type="checkbox"
+                                            data-type="daily"
+                                            data-habit-id="{{ habit['id'] }}"
+                                            data-day="{{ day }}"
+                                            {% if checked %}checked{% endif %}
+                                        >
+                                        <span class="custom-box"></span>
+                                    </label>
+                                </td>
+                                {% endfor %}
+                                <td>
+                                    <button
+                                        class="delete-habit-btn"
+                                        type="button"
+                                        data-group="daily"
+                                        data-habit-id="{{ habit['id'] }}"
+                                        data-habit-name="{{ habit['name'] }}"
+                                    >Delete</button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="stats-grid">
+                <article class="stat-card">
+                    <h3>Complete Count</h3>
+                    <p id="completeCount">{{ stats.complete }}</p>
+                </article>
+                <article class="stat-card">
+                    <h3>Incomplete Count</h3>
+                    <p id="incompleteCount">{{ stats.incomplete }}</p>
+                </article>
+                <article class="stat-card">
+                    <h3>Percentage Complete</h3>
+                    <p id="percentageCount">{{ stats.percentage }}%</p>
+                </article>
+            </section>
+
+            <section class="table-block">
+                <h2>Weekly Habits Table</h2>
+                <div class="table-scroll weekly-scroll">
+                    <table class="secondary-table">
+                        <thead>
+                            <tr>
+                                <th>Habit</th>
+                                <th class="day-week-1">Week 1</th>
+                                <th class="day-week-2">Week 2</th>
+                                <th class="day-week-3">Week 3</th>
+                                <th class="day-week-4">Week 4</th>
+                                <th class="day-week-5">Week 5</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for habit in weekly_habits %}
+                            <tr>
+                                <td
+                                    class="habit-name editable-habit-name"
+                                    contenteditable="true"
+                                    spellcheck="false"
+                                    data-group="weekly"
+                                    data-habit-id="{{ habit['id'] }}"
+                                >{{ habit['name'] }}</td>
+                                {% for week in range(1, 6) %}
+                                {% set checked = weekly_status.get((habit['id'], week), 0) %}
+                                <td>
+                                    <label class="box-wrap">
+                                        <input
+                                            class="habit-checkbox"
+                                            type="checkbox"
+                                            data-type="weekly"
+                                            data-habit-id="{{ habit['id'] }}"
+                                            data-week="{{ week }}"
+                                            {% if checked %}checked{% endif %}
+                                        >
+                                        <span class="custom-box"></span>
+                                    </label>
+                                </td>
+                                {% endfor %}
+                                <td>
+                                    <button
+                                        class="delete-habit-btn"
+                                        type="button"
+                                        data-group="weekly"
+                                        data-habit-id="{{ habit['id'] }}"
+                                        data-habit-name="{{ habit['name'] }}"
+                                    >Delete</button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="table-block">
+                <h2>Monthly Habits Section</h2>
+                <div class="table-scroll narrow monthly-section-scroll">
+                    <table class="secondary-table monthly-table">
+                        <thead>
+                            <tr>
+                                <th>Habit</th>
+                                <th>Completed</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for habit in monthly_habits %}
+                            {% set checked = monthly_status.get(habit['id'], 0) %}
+                            <tr>
+                                <td
+                                    class="habit-name editable-habit-name"
+                                    contenteditable="true"
+                                    spellcheck="false"
+                                    data-group="monthly"
+                                    data-habit-id="{{ habit['id'] }}"
+                                >{{ habit['name'] }}</td>
+                                <td>
+                                    <label class="box-wrap">
+                                        <input
+                                            class="habit-checkbox"
+                                            type="checkbox"
+                                            data-type="monthly"
+                                            data-habit-id="{{ habit['id'] }}"
+                                            {% if checked %}checked{% endif %}
+                                        >
+                                        <span class="custom-box"></span>
+                                    </label>
+                                </td>
+                                <td>
+                                    <button
+                                        class="delete-habit-btn"
+                                        type="button"
+                                        data-group="monthly"
+                                        data-habit-id="{{ habit['id'] }}"
+                                        data-habit-name="{{ habit['name'] }}"
+                                    >Delete</button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
