@@ -36,23 +36,6 @@ APP_PASS_2 = os.getenv("APP_PASS_2", "pass123")
 
 ALLOWED_USERS = {APP_USER_1.strip().lower(), APP_USER_2.strip().lower()}
 
-DAILY_DEFAULTS = [
-    "No more than 3 coffees",
-    "Bed by 10pm",
-    "8 Hours Sleep",
-    "Go to Gym",
-    "Wake up at 7am",
-    "Read before Bed",
-    "Make Bed",
-    "Eat Healthy Dinner",
-    "No Sugar",
-    "Meditate for 30 Minutes",
-]
-
-WEEKLY_DEFAULTS = ["Clean House", "Laundry", "Visit Family"]
-MONTHLY_DEFAULTS = ["Save $50", "Pay Credit Card", "Pay Bills"]
-
-
 class SQLiteCursor(sqlite3.Cursor):
     def execute(self, sql, parameters=()):
         return super().execute(sql.replace("%s", "?"), parameters)
@@ -563,13 +546,6 @@ def init_db():
     cur.execute("SELECT id FROM users WHERE username = %s", (APP_USER_2,))
     user_2_id = cur.fetchone()[0]
     cur.close()
-
-    seed_if_empty(conn, "daily_habits", DAILY_DEFAULTS, user_1_id)
-    seed_if_empty(conn, "daily_habits", DAILY_DEFAULTS, user_2_id)
-    seed_if_empty(conn, "weekly_habits", WEEKLY_DEFAULTS, user_1_id)
-    seed_if_empty(conn, "weekly_habits", WEEKLY_DEFAULTS, user_2_id)
-    seed_if_empty(conn, "monthly_habits", MONTHLY_DEFAULTS, user_1_id)
-    seed_if_empty(conn, "monthly_habits", MONTHLY_DEFAULTS, user_2_id)
 
     conn.commit()
     conn.close()
