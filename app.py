@@ -30,7 +30,7 @@ DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 DB_NAME = os.getenv("DB_NAME", "habit_tracker")
 
 APP_USER_1 = os.getenv("APP_USER_1", "rohit")
-APP_PASS_1 = os.getenv("APP_PASS_1", "pass123")
+APP_PASS_1 = os.getenv("APP_PASS_1", "@madhu2729")
 APP_USER_2 = os.getenv("APP_USER_2", "madhu")
 APP_PASS_2 = os.getenv("APP_PASS_2", "pass123")
 

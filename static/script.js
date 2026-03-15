@@ -59,6 +59,7 @@ function refreshRealtimeCalendar() {
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1;
     const today = now.getDate();
+    const currentWeek = Math.min(Math.ceil(today / 7), 5);
 
     scrollMonthlyGridToCurrentDay(today);
 
@@ -77,6 +78,12 @@ function refreshRealtimeCalendar() {
     document.querySelectorAll(".current-day-cell").forEach((el) => {
         el.classList.remove("current-day-cell");
     });
+    document.querySelectorAll(".current-week-col").forEach((el) => {
+        el.classList.remove("current-week-col");
+    });
+    document.querySelectorAll(".current-week-cell").forEach((el) => {
+        el.classList.remove("current-week-cell");
+    });
 
     const header = document.querySelector(`.habit-grid-table th[data-day=\"${today}\"]`);
     if (header) {
@@ -87,6 +94,18 @@ function refreshRealtimeCalendar() {
         const cell = input.closest("td");
         if (cell) {
             cell.classList.add("current-day-cell");
+        }
+    });
+
+    const weeklyHeader = document.querySelector(`.secondary-table th[data-week=\"${currentWeek}\"]`);
+    if (weeklyHeader) {
+        weeklyHeader.classList.add("current-week-col");
+    }
+
+    document.querySelectorAll(`.secondary-table input[data-type=\"weekly\"][data-week=\"${currentWeek}\"]`).forEach((input) => {
+        const cell = input.closest("td");
+        if (cell) {
+            cell.classList.add("current-week-cell");
         }
     });
 

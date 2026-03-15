@@ -343,6 +343,14 @@ button:hover {
     background: rgba(212, 238, 219, 0.45);
 }
 
+.current-week-col {
+    box-shadow: inset 0 -3px 0 rgba(196, 151, 88, 0.95);
+}
+
+.current-week-cell {
+    background: rgba(241, 224, 199, 0.42);
+}
+
 .day-week-1 { background: var(--week1); }
 .day-week-2 { background: var(--week2); }
 .day-week-3 { background: var(--week3); }
