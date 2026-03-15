@@ -6,15 +6,22 @@ import sqlite3
 
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 import mysql.connector
+try:
+    import psycopg2
+except ImportError:
+    psycopg2 = None
 from werkzeug.security import check_password_hash, generate_password_hash
 
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "change-this-secret-in-production")
 
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 DB_ENGINE = os.getenv("DB_ENGINE", "mysql").strip().lower()
 SQLITE_PATH = os.getenv("SQLITE_PATH", os.path.join(os.path.dirname(__file__), "habit_tracker.db"))
 USE_SQLITE = DB_ENGINE == "sqlite"
+USE_POSTGRES = DB_ENGINE in {"postgres", "postgresql"}
+UPSERT_USES_CONFLICT = USE_SQLITE or USE_POSTGRES
 
 DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
 DB_PORT = int(os.getenv("DB_PORT", "3306"))
@@ -60,11 +67,22 @@ class SQLiteConnection(sqlite3.Connection):
         return super().cursor(*args, **kwargs)
 
 
+def get_postgres_dsn():
+    if DATABASE_URL:
+        if DATABASE_URL.startswith("postgres://"):
+            return "postgresql://" + DATABASE_URL[len("postgres://") :]
+        return DATABASE_URL
+    return None
+
+
 def get_server_db():
     if USE_SQLITE:
         conn = sqlite3.connect(SQLITE_PATH, factory=SQLiteConnection)
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
+
+    if USE_POSTGRES:
+        return get_db()
 
     return mysql.connector.connect(
         host=DB_HOST,
@@ -79,6 +97,22 @@ def get_db():
         conn = sqlite3.connect(SQLITE_PATH, factory=SQLiteConnection)
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
+
+    if USE_POSTGRES:
+        if psycopg2 is None:
+            raise RuntimeError("psycopg2 is required for PostgreSQL. Install psycopg2-binary.")
+
+        dsn = get_postgres_dsn()
+        if dsn:
+            return psycopg2.connect(dsn)
+
+        return psycopg2.connect(
+            host=DB_HOST,
+            port=DB_PORT,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            dbname=DB_NAME,
+        )
 
     return mysql.connector.connect(
         host=DB_HOST,
@@ -213,7 +247,7 @@ def ensure_owned_habit(cursor, habit_type, habit_id, user_id):
 
 
 def init_db():
-    if not USE_SQLITE:
+    if not USE_SQLITE and not USE_POSTGRES:
         bootstrap_conn = get_server_db()
         bootstrap_cur = bootstrap_conn.cursor()
         bootstrap_cur.execute(f"CREATE DATABASE IF NOT EXISTS `{DB_NAME}`")
@@ -311,6 +345,99 @@ def init_db():
                 year INTEGER NOT NULL,
                 month INTEGER NOT NULL,
                 completed INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(habit_id, year, month),
+                FOREIGN KEY (habit_id) REFERENCES monthly_habits(id) ON DELETE CASCADE
+            )
+            """
+        )
+    elif USE_POSTGRES:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(100) NOT NULL UNIQUE,
+                password_hash VARCHAR(255) NOT NULL
+            )
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS daily_habits (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                position INT NOT NULL,
+                owner_user_id INT NOT NULL,
+                FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """
+        )
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_daily_owner ON daily_habits(owner_user_id)")
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS weekly_habits (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                position INT NOT NULL,
+                owner_user_id INT NOT NULL,
+                FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """
+        )
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_weekly_owner ON weekly_habits(owner_user_id)")
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS monthly_habits (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                position INT NOT NULL,
+                owner_user_id INT NOT NULL,
+                FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """
+        )
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_monthly_owner ON monthly_habits(owner_user_id)")
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS daily_completions (
+                id SERIAL PRIMARY KEY,
+                habit_id INT NOT NULL,
+                year INT NOT NULL,
+                month INT NOT NULL,
+                day INT NOT NULL,
+                completed SMALLINT NOT NULL DEFAULT 0,
+                UNIQUE(habit_id, year, month, day),
+                FOREIGN KEY (habit_id) REFERENCES daily_habits(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS weekly_completions (
+                id SERIAL PRIMARY KEY,
+                habit_id INT NOT NULL,
+                year INT NOT NULL,
+                month INT NOT NULL,
+                week INT NOT NULL,
+                completed SMALLINT NOT NULL DEFAULT 0,
+                UNIQUE(habit_id, year, month, week),
+                FOREIGN KEY (habit_id) REFERENCES weekly_habits(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS monthly_completions (
+                id SERIAL PRIMARY KEY,
+                habit_id INT NOT NULL,
+                year INT NOT NULL,
+                month INT NOT NULL,
+                completed SMALLINT NOT NULL DEFAULT 0,
                 UNIQUE(habit_id, year, month),
                 FOREIGN KEY (habit_id) REFERENCES monthly_habits(id) ON DELETE CASCADE
             )
@@ -795,7 +922,7 @@ def toggle_completion():
             conn.close()
             return jsonify({"error": "Day is required for daily habits"}), 400
 
-        if USE_SQLITE:
+        if UPSERT_USES_CONFLICT:
             cursor.execute(
                 """
                 INSERT INTO daily_completions (habit_id, year, month, day, completed)
@@ -821,7 +948,7 @@ def toggle_completion():
             conn.close()
             return jsonify({"error": "Week is required for weekly habits"}), 400
 
-        if USE_SQLITE:
+        if UPSERT_USES_CONFLICT:
             cursor.execute(
                 """
                 INSERT INTO weekly_completions (habit_id, year, month, week, completed)
@@ -841,7 +968,7 @@ def toggle_completion():
             )
 
     elif habit_type == "monthly":
-        if USE_SQLITE:
+        if UPSERT_USES_CONFLICT:
             cursor.execute(
                 """
                 INSERT INTO monthly_completions (habit_id, year, month, completed)
