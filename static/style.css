@@ -406,6 +406,46 @@ button:hover {
     font-weight: 600;
 }
 
+.stat-chart-card {
+    display: grid;
+    place-items: center;
+    gap: 8px;
+}
+
+.progress-pie {
+    width: 130px;
+    height: 130px;
+    border-radius: 50%;
+    background: conic-gradient(#96c9a3 0deg, #96c9a3 0deg, #ecd7b7 0deg 360deg);
+    position: relative;
+    box-shadow: inset 0 0 0 1px rgba(140, 117, 89, 0.22);
+}
+
+.progress-pie::after {
+    content: "";
+    position: absolute;
+    inset: 23px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.95);
+}
+
+.progress-pie::before {
+    content: attr(data-label);
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #5a4f42;
+    z-index: 1;
+}
+
+.pie-caption {
+    font-size: 0.8rem;
+    color: #6f655a;
+}
+
 .narrow {
     max-width: 520px;
 }

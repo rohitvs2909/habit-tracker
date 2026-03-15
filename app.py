@@ -2,6 +2,7 @@ from calendar import month_name, monthrange
 from datetime import datetime
 from functools import wraps
 import os
+import sqlite3
 
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 import mysql.connector
@@ -11,6 +12,10 @@ from werkzeug.security import check_password_hash, generate_password_hash
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "change-this-secret-in-production")
 
+DB_ENGINE = os.getenv("DB_ENGINE", "mysql").strip().lower()
+SQLITE_PATH = os.getenv("SQLITE_PATH", os.path.join(os.path.dirname(__file__), "habit_tracker.db"))
+USE_SQLITE = DB_ENGINE == "sqlite"
+
 DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
 DB_PORT = int(os.getenv("DB_PORT", "3306"))
 DB_USER = os.getenv("DB_USER", "root")
@@ -19,8 +24,10 @@ DB_NAME = os.getenv("DB_NAME", "habit_tracker")
 
 APP_USER_1 = os.getenv("APP_USER_1", "rohit")
 APP_PASS_1 = os.getenv("APP_PASS_1", "pass123")
-APP_USER_2 = os.getenv("APP_USER_2", "partner")
+APP_USER_2 = os.getenv("APP_USER_2", "madhu")
 APP_PASS_2 = os.getenv("APP_PASS_2", "pass123")
+
+ALLOWED_USERS = {APP_USER_1.strip().lower(), APP_USER_2.strip().lower()}
 
 DAILY_DEFAULTS = [
     "No more than 3 coffees",
@@ -39,7 +46,26 @@ WEEKLY_DEFAULTS = ["Clean House", "Laundry", "Visit Family"]
 MONTHLY_DEFAULTS = ["Save $50", "Pay Credit Card", "Pay Bills"]
 
 
+class SQLiteCursor(sqlite3.Cursor):
+    def execute(self, sql, parameters=()):
+        return super().execute(sql.replace("%s", "?"), parameters)
+
+    def executemany(self, sql, seq_of_parameters):
+        return super().executemany(sql.replace("%s", "?"), seq_of_parameters)
+
+
+class SQLiteConnection(sqlite3.Connection):
+    def cursor(self, *args, **kwargs):
+        kwargs.setdefault("factory", SQLiteCursor)
+        return super().cursor(*args, **kwargs)
+
+
 def get_server_db():
+    if USE_SQLITE:
+        conn = sqlite3.connect(SQLITE_PATH, factory=SQLiteConnection)
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
+
     return mysql.connector.connect(
         host=DB_HOST,
         port=DB_PORT,
@@ -49,6 +75,11 @@ def get_server_db():
 
 
 def get_db():
+    if USE_SQLITE:
+        conn = sqlite3.connect(SQLITE_PATH, factory=SQLiteConnection)
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
+
     return mysql.connector.connect(
         host=DB_HOST,
         port=DB_PORT,
@@ -60,7 +91,7 @@ def get_db():
 
 def fetch_all_dict(cursor):
     rows = cursor.fetchall()
-    columns = cursor.column_names
+    columns = cursor.column_names if hasattr(cursor, "column_names") else [d[0] for d in cursor.description]
     return [dict(zip(columns, row)) for row in rows]
 
 
@@ -71,6 +102,10 @@ def fetch_one_value(cursor):
 
 def get_current_user_id():
     return session.get("user_id")
+
+
+def is_allowed_username(username):
+    return username.strip().lower() in ALLOWED_USERS
 
 
 def login_required(fn):
@@ -178,123 +213,217 @@ def ensure_owned_habit(cursor, habit_type, habit_id, user_id):
 
 
 def init_db():
-    bootstrap_conn = get_server_db()
-    bootstrap_cur = bootstrap_conn.cursor()
-    bootstrap_cur.execute(f"CREATE DATABASE IF NOT EXISTS `{DB_NAME}`")
-    bootstrap_conn.commit()
-    bootstrap_cur.close()
-    bootstrap_conn.close()
+    if not USE_SQLITE:
+        bootstrap_conn = get_server_db()
+        bootstrap_cur = bootstrap_conn.cursor()
+        bootstrap_cur.execute(f"CREATE DATABASE IF NOT EXISTS `{DB_NAME}`")
+        bootstrap_conn.commit()
+        bootstrap_cur.close()
+        bootstrap_conn.close()
 
     conn = get_db()
     cur = conn.cursor()
 
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS users (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            username VARCHAR(100) NOT NULL UNIQUE,
-            password_hash VARCHAR(255) NOT NULL
-        )
-        """
-    )
-
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS daily_habits (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            name VARCHAR(255) NOT NULL,
-            position INT NOT NULL,
-            owner_user_id INT NOT NULL,
-            INDEX idx_daily_owner (owner_user_id),
-            FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-        """
-    )
-
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS weekly_habits (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            name VARCHAR(255) NOT NULL,
-            position INT NOT NULL,
-            owner_user_id INT NOT NULL,
-            INDEX idx_weekly_owner (owner_user_id),
-            FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-        """
-    )
-
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS monthly_habits (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            name VARCHAR(255) NOT NULL,
-            position INT NOT NULL,
-            owner_user_id INT NOT NULL,
-            INDEX idx_monthly_owner (owner_user_id),
-            FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-        """
-    )
-
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS daily_completions (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            habit_id INT NOT NULL,
-            year INT NOT NULL,
-            month INT NOT NULL,
-            day INT NOT NULL,
-            completed TINYINT(1) NOT NULL DEFAULT 0,
-            UNIQUE(habit_id, year, month, day),
-            FOREIGN KEY (habit_id) REFERENCES daily_habits(id) ON DELETE CASCADE
-        )
-        """
-    )
-
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS weekly_completions (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            habit_id INT NOT NULL,
-            year INT NOT NULL,
-            month INT NOT NULL,
-            week INT NOT NULL,
-            completed TINYINT(1) NOT NULL DEFAULT 0,
-            UNIQUE(habit_id, year, month, week),
-            FOREIGN KEY (habit_id) REFERENCES weekly_habits(id) ON DELETE CASCADE
-        )
-        """
-    )
-
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS monthly_completions (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            habit_id INT NOT NULL,
-            year INT NOT NULL,
-            month INT NOT NULL,
-            completed TINYINT(1) NOT NULL DEFAULT 0,
-            UNIQUE(habit_id, year, month),
-            FOREIGN KEY (habit_id) REFERENCES monthly_habits(id) ON DELETE CASCADE
-        )
-        """
-    )
-
-    # Supports migration from older schema without ownership columns.
-    tables = ["daily_habits", "weekly_habits", "monthly_habits"]
-    for table in tables:
+    if USE_SQLITE:
         cur.execute(
             """
-            SELECT COUNT(*)
-            FROM information_schema.columns
-            WHERE table_schema = %s AND table_name = %s AND column_name = 'owner_user_id'
-            """,
-            (DB_NAME, table),
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL
+            )
+            """
         )
-        has_owner_col = fetch_one_value(cur)
-        if not has_owner_col:
-            cur.execute(f"ALTER TABLE {table} ADD COLUMN owner_user_id INT NOT NULL DEFAULT 1")
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS daily_habits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                owner_user_id INTEGER NOT NULL,
+                FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """
+        )
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_daily_owner ON daily_habits(owner_user_id)")
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS weekly_habits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                owner_user_id INTEGER NOT NULL,
+                FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """
+        )
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_weekly_owner ON weekly_habits(owner_user_id)")
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS monthly_habits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                owner_user_id INTEGER NOT NULL,
+                FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """
+        )
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_monthly_owner ON monthly_habits(owner_user_id)")
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS daily_completions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                habit_id INTEGER NOT NULL,
+                year INTEGER NOT NULL,
+                month INTEGER NOT NULL,
+                day INTEGER NOT NULL,
+                completed INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(habit_id, year, month, day),
+                FOREIGN KEY (habit_id) REFERENCES daily_habits(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS weekly_completions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                habit_id INTEGER NOT NULL,
+                year INTEGER NOT NULL,
+                month INTEGER NOT NULL,
+                week INTEGER NOT NULL,
+                completed INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(habit_id, year, month, week),
+                FOREIGN KEY (habit_id) REFERENCES weekly_habits(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS monthly_completions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                habit_id INTEGER NOT NULL,
+                year INTEGER NOT NULL,
+                month INTEGER NOT NULL,
+                completed INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(habit_id, year, month),
+                FOREIGN KEY (habit_id) REFERENCES monthly_habits(id) ON DELETE CASCADE
+            )
+            """
+        )
+    else:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                username VARCHAR(100) NOT NULL UNIQUE,
+                password_hash VARCHAR(255) NOT NULL
+            )
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS daily_habits (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                name VARCHAR(255) NOT NULL,
+                position INT NOT NULL,
+                owner_user_id INT NOT NULL,
+                INDEX idx_daily_owner (owner_user_id),
+                FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS weekly_habits (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                name VARCHAR(255) NOT NULL,
+                position INT NOT NULL,
+                owner_user_id INT NOT NULL,
+                INDEX idx_weekly_owner (owner_user_id),
+                FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS monthly_habits (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                name VARCHAR(255) NOT NULL,
+                position INT NOT NULL,
+                owner_user_id INT NOT NULL,
+                INDEX idx_monthly_owner (owner_user_id),
+                FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS daily_completions (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                habit_id INT NOT NULL,
+                year INT NOT NULL,
+                month INT NOT NULL,
+                day INT NOT NULL,
+                completed TINYINT(1) NOT NULL DEFAULT 0,
+                UNIQUE(habit_id, year, month, day),
+                FOREIGN KEY (habit_id) REFERENCES daily_habits(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS weekly_completions (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                habit_id INT NOT NULL,
+                year INT NOT NULL,
+                month INT NOT NULL,
+                week INT NOT NULL,
+                completed TINYINT(1) NOT NULL DEFAULT 0,
+                UNIQUE(habit_id, year, month, week),
+                FOREIGN KEY (habit_id) REFERENCES weekly_habits(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS monthly_completions (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                habit_id INT NOT NULL,
+                year INT NOT NULL,
+                month INT NOT NULL,
+                completed TINYINT(1) NOT NULL DEFAULT 0,
+                UNIQUE(habit_id, year, month),
+                FOREIGN KEY (habit_id) REFERENCES monthly_habits(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        # Supports migration from older schema without ownership columns.
+        tables = ["daily_habits", "weekly_habits", "monthly_habits"]
+        for table in tables:
+            cur.execute(
+                """
+                SELECT COUNT(*)
+                FROM information_schema.columns
+                WHERE table_schema = %s AND table_name = %s AND column_name = 'owner_user_id'
+                """,
+                (DB_NAME, table),
+            )
+            has_owner_col = fetch_one_value(cur)
+            if not has_owner_col:
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN owner_user_id INT NOT NULL DEFAULT 1")
     cur.close()
 
     create_user_if_missing(conn, APP_USER_1, APP_PASS_1)
@@ -358,6 +487,9 @@ def login():
     username = (payload.get("username") or "").strip()
     password = payload.get("password") or ""
 
+    if not is_allowed_username(username):
+        return render_template("login.html", error="Access is limited to invited users only."), 403
+
     user = get_user_by_username(username)
     if not user or not check_password_hash(user["password_hash"], password):
         return render_template("login.html", error="Invalid username or password"), 401
@@ -369,41 +501,7 @@ def login():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
-    if get_current_user_id():
-        return redirect(url_for("index"))
-
-    if request.method in ("GET", "HEAD"):
-        return render_template("register.html")
-
-    username = (request.form.get("username") or "").strip()
-    password = (request.form.get("password") or "").strip()
-    confirm_password = (request.form.get("confirm_password") or "").strip()
-
-    if len(username) < 3:
-        return render_template("register.html", error="Username must be at least 3 characters."), 400
-
-    if len(password) < 6:
-        return render_template("register.html", error="Password must be at least 6 characters."), 400
-
-    if password != confirm_password:
-        return render_template("register.html", error="Password and confirm password do not match."), 400
-
-    if get_user_by_username(username):
-        return render_template("register.html", error="Username already exists."), 400
-
-    conn = get_db()
-    user_id = create_user(conn, username, password)
-    conn.commit()
-
-    seed_if_empty(conn, "daily_habits", DAILY_DEFAULTS, user_id)
-    seed_if_empty(conn, "weekly_habits", WEEKLY_DEFAULTS, user_id)
-    seed_if_empty(conn, "monthly_habits", MONTHLY_DEFAULTS, user_id)
-    conn.commit()
-    conn.close()
-
-    session["user_id"] = user_id
-    session["username"] = username
-    return redirect(url_for("index"))
+    return render_template("register.html"), 403
 
 
 @app.route("/logout", methods=["POST"])
@@ -697,14 +795,24 @@ def toggle_completion():
             conn.close()
             return jsonify({"error": "Day is required for daily habits"}), 400
 
-        cursor.execute(
-            """
-            INSERT INTO daily_completions (habit_id, year, month, day, completed)
-            VALUES (%s, %s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE completed = VALUES(completed)
-            """,
-            (habit_id, year, month, day, checked),
-        )
+        if USE_SQLITE:
+            cursor.execute(
+                """
+                INSERT INTO daily_completions (habit_id, year, month, day, completed)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT(habit_id, year, month, day) DO UPDATE SET completed = excluded.completed
+                """,
+                (habit_id, year, month, day, checked),
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO daily_completions (habit_id, year, month, day, completed)
+                VALUES (%s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE completed = VALUES(completed)
+                """,
+                (habit_id, year, month, day, checked),
+            )
 
     elif habit_type == "weekly":
         week = payload.get("week")
@@ -713,24 +821,44 @@ def toggle_completion():
             conn.close()
             return jsonify({"error": "Week is required for weekly habits"}), 400
 
-        cursor.execute(
-            """
-            INSERT INTO weekly_completions (habit_id, year, month, week, completed)
-            VALUES (%s, %s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE completed = VALUES(completed)
-            """,
-            (habit_id, year, month, week, checked),
-        )
+        if USE_SQLITE:
+            cursor.execute(
+                """
+                INSERT INTO weekly_completions (habit_id, year, month, week, completed)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT(habit_id, year, month, week) DO UPDATE SET completed = excluded.completed
+                """,
+                (habit_id, year, month, week, checked),
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO weekly_completions (habit_id, year, month, week, completed)
+                VALUES (%s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE completed = VALUES(completed)
+                """,
+                (habit_id, year, month, week, checked),
+            )
 
     elif habit_type == "monthly":
-        cursor.execute(
-            """
-            INSERT INTO monthly_completions (habit_id, year, month, completed)
-            VALUES (%s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE completed = VALUES(completed)
-            """,
-            (habit_id, year, month, checked),
-        )
+        if USE_SQLITE:
+            cursor.execute(
+                """
+                INSERT INTO monthly_completions (habit_id, year, month, completed)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT(habit_id, year, month) DO UPDATE SET completed = excluded.completed
+                """,
+                (habit_id, year, month, checked),
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO monthly_completions (habit_id, year, month, completed)
+                VALUES (%s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE completed = VALUES(completed)
+                """,
+                (habit_id, year, month, checked),
+            )
 
     else:
         cursor.close()
@@ -765,4 +893,5 @@ init_db()
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.getenv("PORT", "8000"))
+    app.run(debug=True, host="127.0.0.1", port=port)

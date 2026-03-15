@@ -7,6 +7,40 @@ const habitCategorySelect = document.getElementById("habitCategorySelect");
 const pageShell = document.querySelector(".page-shell");
 const monthLabelEl = document.getElementById("monthLabel");
 const liveNowEl = document.getElementById("liveNow");
+const progressPieEl = document.getElementById("progressPie");
+const pieCaptionEl = document.getElementById("pieCaption");
+let monthlyGridAutoScrolled = false;
+
+function updatePieChart(complete, incomplete) {
+    if (!progressPieEl || !pieCaptionEl) {
+        return;
+    }
+
+    const total = Math.max(complete + incomplete, 0);
+    const completePct = total ? (complete / total) * 100 : 0;
+    const incompletePct = Math.max(100 - completePct, 0);
+    const degrees = (completePct / 100) * 360;
+
+    progressPieEl.style.background = `conic-gradient(#96c9a3 0deg, #96c9a3 ${degrees}deg, #ecd7b7 ${degrees}deg 360deg)`;
+    progressPieEl.dataset.label = `${completePct.toFixed(1)}%`;
+    pieCaptionEl.textContent = `Complete ${completePct.toFixed(1)}% | Incomplete ${incompletePct.toFixed(1)}%`;
+}
+
+function scrollMonthlyGridToCurrentDay(day) {
+    if (monthlyGridAutoScrolled) {
+        return;
+    }
+
+    const container = document.querySelector(".monthly-grid-scroll");
+    const header = document.querySelector(`.habit-grid-table th[data-day=\"${day}\"]`);
+    if (!container || !header) {
+        return;
+    }
+
+    const target = Math.max(header.offsetLeft - 120, 0);
+    container.scrollTo({ left: target, behavior: "smooth" });
+    monthlyGridAutoScrolled = true;
+}
 
 function formatLiveDateTime(date) {
     return new Intl.DateTimeFormat(undefined, {
@@ -25,6 +59,8 @@ function refreshRealtimeCalendar() {
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1;
     const today = now.getDate();
+
+    scrollMonthlyGridToCurrentDay(today);
 
     if (liveNowEl) {
         liveNowEl.textContent = formatLiveDateTime(now);
@@ -73,6 +109,7 @@ function updateStatsFromDom() {
     completeCountEl.textContent = String(complete);
     incompleteCountEl.textContent = String(incomplete);
     percentageCountEl.textContent = `${percentage}%`;
+    updatePieChart(complete, incomplete);
 }
 
 function renderStats(stats) {
@@ -84,6 +121,7 @@ function renderStats(stats) {
     completeCountEl.textContent = String(stats.complete);
     incompleteCountEl.textContent = String(stats.incomplete);
     percentageCountEl.textContent = `${Number(stats.percentage).toFixed(1)}%`;
+    updatePieChart(Number(stats.complete) || 0, Number(stats.incomplete) || 0);
 }
 
 document.querySelectorAll(".habit-checkbox").forEach((checkbox) => {
